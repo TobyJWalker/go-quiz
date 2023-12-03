@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 )
 
 // create flags
@@ -15,7 +17,7 @@ var (
 )
 
 // create input reader
-var io = bufio.NewReader(os.Stdin)
+var io = bufio.NewScanner(os.Stdin)
 
 func main() {
 
@@ -42,40 +44,35 @@ func main() {
 
 	// create channels
 	timer_ch := make(chan interface{})
-	quiz_ch := make(chan interface{})
-	done_ch := make(chan interface{})
+	score_ch := make(chan int)
 
 	// prompt user to start
 	fmt.Println("Press enter to start the quiz")
-	io.ReadString('\n')
-
-	// initailise correct answers
-	correct := 0
-
-	// function to listen for correct answers
-	go func() {
-		for {
-			select {
-			case <-quiz_ch:
-				correct++
-			case <-timer_ch:
-				done_ch <- true
-			}
-		}
-	}()
+	io.Scan()
 
 	// start quiz
-	go startQuiz(records, timer_ch, quiz_ch, done_ch)
+	go startQuiz(records, timer_ch, score_ch)
 
+	// start timer func and close channels after
+	go func() {
+		time.Sleep(time.Duration(*timer) * time.Second)
+		close(timer_ch)
+	}()
+
+	// get score
+	correct := <-score_ch
 	
-
+	// display results and close score channel
+	fmt.Printf("You scored %d out of %d\n", correct, len(records))
+	close(score_ch)
 }
 
 // function to start quiz
-func startQuiz(problems [][]string, timer_ch, quiz_ch, done_ch chan interface{}) {
+func startQuiz(problems [][]string, timer_ch chan interface{}, score_ch chan int) {
 	
-	// track index
+	// init vars
 	index := 0
+	correct := 0
 
 	// loop for asking questions
 	for {
@@ -83,22 +80,32 @@ func startQuiz(problems [][]string, timer_ch, quiz_ch, done_ch chan interface{})
 			// handle timeout
 			case <-timer_ch:
 				fmt.Println("Time's up!")
+				score_ch <- correct
 				return
 			
 			// ask questions
 			default:
+				// check if done
+				if index >= len(problems) {
+					fmt.Println("Quiz complete!")
+					score_ch <- correct
+					return
+				}
+
 				// display question
 				fmt.Printf("Question %d: %s = ", index+1, problems[index][0])
 
 				// read answer
-				answer, err := io.ReadString('\n')
-				if err != nil {
-					panic("Error reading input")
-				}
+				io.Scan()
+				answer := io.Text()
+
+				// format expected and given answer
+				expected := strings.TrimSpace(strings.TrimRight(problems[index][1], "\n"))
+				answer = strings.TrimSpace(strings.TrimRight(answer, "\n"))
 
 				// check answer
-				if answer == problems[index][1] {
-					quiz_ch <- true // signal correct answer
+				if answer == expected {
+					correct++
 				}
 
 				// increment index
